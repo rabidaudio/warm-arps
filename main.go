@@ -52,15 +52,47 @@ func SelectOutPort() (drivers.Out, error) {
 	return outPorts[idx], nil
 }
 
-// TODO: let these be set via options
-var intervals = []midi.Interval{
-	midi.Unison,
-	midi.MajorThird,
-	midi.Fifth,
-	midi.Octave,
-	midi.Fifth,
-	midi.MajorThird,
-	midi.Unison,
+func SelectPattern() ([]midi.Interval, error) {
+	prompt := promptui.Select{
+		Label: "Pattern",
+		Items: []string{
+			"1-3-5-8-5-3-1",
+			"5-4-3-2-1",
+			"1-3-5-3-1",
+		},
+	}
+	idx, _, err := prompt.Run()
+	if err != nil {
+		return nil, err
+	}
+	return [][]midi.Interval{
+		// 1-3-5-8-5-3-1
+		{
+			midi.Unison,
+			midi.MajorThird,
+			midi.Fifth,
+			midi.Octave,
+			midi.Fifth,
+			midi.MajorThird,
+			midi.Unison,
+		},
+		// 5-4-3-2-1
+		{
+			midi.Fifth,
+			midi.Fourth,
+			midi.MajorThird,
+			midi.MajorSecond,
+			midi.Unison,
+		},
+		// 1-3-5-3-1
+		{
+			midi.Unison,
+			midi.MajorThird,
+			midi.Fifth,
+			midi.MajorThird,
+			midi.Unison,
+		},
+	}[idx], nil
 }
 
 const channel = 0
@@ -73,7 +105,7 @@ const tempo = 100 // bpm
 // Some people would likely scoff at the use of gotos here but it makes things really
 // easy imo
 func HandleInputs(messages chan midi.Message, playback func(midi.Note)) {
-	timeout := time.Duration(1 / (tempo / 60.0) * 1.5 /* wiggle room */ * float64(time.Second))
+	timeout := time.Duration(1 / (tempo / 60.0) * 2.2 /* wiggle room */ * float64(time.Second))
 	// TODO: determine tempo from distance between pitches?
 
 INITIAL:
@@ -132,7 +164,7 @@ SECOND_DOWN:
 	}
 }
 
-func Play(out drivers.Out, baseNote midi.Note) error {
+func Play(out drivers.Out, baseNote midi.Note, intervals []midi.Interval) error {
 	delay := time.Duration(1 / (tempo / 60.0) * float64(time.Second))
 	err := out.Send(midi.NoteOff(channel, uint8(baseNote)))
 	if err != nil {
@@ -168,6 +200,13 @@ func main() {
 		fmt.Printf("problem accessing MIDI out: %v\n", err)
 		os.Exit(1)
 	}
+
+	invervals, err := SelectPattern()
+	if err != nil {
+		fmt.Printf("problem with pattern: %v\n", err)
+		os.Exit(1)
+	}
+
 	err = in.Open()
 	if err != nil {
 		fmt.Printf("problem opening MIDI in: %v\n", err)
@@ -195,7 +234,7 @@ func main() {
 
 	// Main loop
 	go HandleInputs(messages, func(n midi.Note) {
-		err := Play(out, n)
+		err := Play(out, n, invervals)
 		if err != nil {
 			fmt.Printf("playback issue: %v", err)
 			os.Exit(1)
@@ -207,4 +246,5 @@ func main() {
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 	fmt.Println("Ready to play")
 	<-done // Will block here until user hits ctrl+c
+	fmt.Println("Closing MIDI devices")
 }
