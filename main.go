@@ -59,6 +59,7 @@ func SelectPattern() ([]midi.Interval, error) {
 			"1-3-5-8-5-3-1",
 			"5-4-3-2-1",
 			"1-3-5-3-1",
+			"5-6-5-4-5-4-3-4-3-2-3-2-1",
 		},
 	}
 	idx, _, err := prompt.Run()
@@ -92,12 +93,33 @@ func SelectPattern() ([]midi.Interval, error) {
 			midi.MajorThird,
 			midi.Unison,
 		},
+		// 5-6-5-4-5-4-3-4-3-2-3-2-1
+		{
+			midi.Fifth,
+			midi.MajorSixth,
+			midi.Fifth,
+
+			midi.Fourth,
+			midi.Fifth,
+			midi.Fourth,
+
+			midi.MajorThird,
+			midi.Fourth,
+			midi.MajorThird,
+
+			midi.MajorSecond,
+			midi.MajorThird,
+			midi.MajorSecond,
+
+			midi.Unison,
+		},
 	}[idx], nil
 }
 
 const channel = 0
 const velocity = 80
-const tempo = 100 // bpm
+
+var tempo = 100.0 // bpm
 
 // HandleInputs is a state machine using a channel of incoming midi messages.
 // It uses goto statements to handle state transitions. It calls playback when
@@ -106,7 +128,7 @@ const tempo = 100 // bpm
 // easy imo
 func HandleInputs(messages chan midi.Message, playback func(midi.Note)) {
 	timeout := time.Duration(1 / (tempo / 60.0) * 2.2 /* wiggle room */ * float64(time.Second))
-	// TODO: determine tempo from distance between pitches?
+	var start time.Time
 
 INITIAL:
 	msg1, ok := <-messages
@@ -124,6 +146,7 @@ INITIAL:
 FIRST_DOWN:
 	select {
 	case msg2, ok := <-messages:
+		start = time.Now()
 		if !ok {
 			return // channel closed
 		}
@@ -149,6 +172,7 @@ FIRST_UP:
 SECOND_DOWN:
 	select {
 	case msg4, ok := <-messages:
+		tempo = (1.0 / time.Since(start).Minutes()) * 2 // 8th note to quarter note
 		if !ok {
 			return // channel closed
 		}
