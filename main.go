@@ -14,10 +14,55 @@ import (
 	_ "gitlab.com/gomidi/midi/v2/drivers/rtmididrv" // autoregisters driver
 )
 
+var Intervals = map[string][]midi.Interval{
+	"1-3-5-8-5-3-1": {
+		midi.Unison,
+		midi.MajorThird,
+		midi.Fifth,
+		midi.Octave,
+		midi.Fifth,
+		midi.MajorThird,
+		midi.Unison,
+	},
+	"5-4-3-2-1": {
+		midi.Fifth,
+		midi.Fourth,
+		midi.MajorThird,
+		midi.MajorSecond,
+		midi.Unison,
+	},
+	"1-3-5-3-1": {
+		midi.Unison,
+		midi.MajorThird,
+		midi.Fifth,
+		midi.MajorThird,
+		midi.Unison,
+	},
+	"5-6-5-4-5-4-3-4-3-2-3-2-1": {
+		midi.Fifth,
+		midi.MajorSixth,
+		midi.Fifth,
+
+		midi.Fourth,
+		midi.Fifth,
+		midi.Fourth,
+
+		midi.MajorThird,
+		midi.Fourth,
+		midi.MajorThird,
+
+		midi.MajorSecond,
+		midi.MajorThird,
+		midi.MajorSecond,
+
+		midi.Unison,
+	},
+}
+
 func SelectInPort() (drivers.In, error) {
 	inPorts := midi.GetInPorts()
 	if len(inPorts) == 0 {
-		return nil, errors.New("No input MIDI devices found")
+		return nil, errors.New("no input MIDI devices found")
 	}
 	if len(inPorts) == 1 {
 		return inPorts[0], nil
@@ -36,7 +81,7 @@ func SelectInPort() (drivers.In, error) {
 func SelectOutPort() (drivers.Out, error) {
 	outPorts := midi.GetOutPorts()
 	if len(outPorts) == 0 {
-		return nil, errors.New("No output MIDI devices found")
+		return nil, errors.New("no output MIDI devices found")
 	}
 	if len(outPorts) == 1 {
 		return outPorts[0], nil
@@ -52,68 +97,28 @@ func SelectOutPort() (drivers.Out, error) {
 	return outPorts[idx], nil
 }
 
+func supportedIntervalNames() []string {
+	var result = make([]string, len(Intervals))
+	i := 0
+	for k := range Intervals {
+		result[i] = k
+		i++
+	}
+	return result
+}
+
 func SelectPattern() ([]midi.Interval, error) {
+	intervals := supportedIntervalNames()
 	prompt := promptui.Select{
 		Label: "Pattern",
-		Items: []string{
-			"1-3-5-8-5-3-1",
-			"5-4-3-2-1",
-			"1-3-5-3-1",
-			"5-6-5-4-5-4-3-4-3-2-3-2-1",
-		},
+		Items: intervals,
 	}
 	idx, _, err := prompt.Run()
 	if err != nil {
 		return nil, err
 	}
-	return [][]midi.Interval{
-		// 1-3-5-8-5-3-1
-		{
-			midi.Unison,
-			midi.MajorThird,
-			midi.Fifth,
-			midi.Octave,
-			midi.Fifth,
-			midi.MajorThird,
-			midi.Unison,
-		},
-		// 5-4-3-2-1
-		{
-			midi.Fifth,
-			midi.Fourth,
-			midi.MajorThird,
-			midi.MajorSecond,
-			midi.Unison,
-		},
-		// 1-3-5-3-1
-		{
-			midi.Unison,
-			midi.MajorThird,
-			midi.Fifth,
-			midi.MajorThird,
-			midi.Unison,
-		},
-		// 5-6-5-4-5-4-3-4-3-2-3-2-1
-		{
-			midi.Fifth,
-			midi.MajorSixth,
-			midi.Fifth,
-
-			midi.Fourth,
-			midi.Fifth,
-			midi.Fourth,
-
-			midi.MajorThird,
-			midi.Fourth,
-			midi.MajorThird,
-
-			midi.MajorSecond,
-			midi.MajorThird,
-			midi.MajorSecond,
-
-			midi.Unison,
-		},
-	}[idx], nil
+	key := intervals[idx]
+	return Intervals[key], nil
 }
 
 const channel = 0
@@ -225,12 +230,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	invervals, err := SelectPattern()
-	if err != nil {
-		fmt.Printf("problem with pattern: %v\n", err)
-		os.Exit(1)
-	}
-
 	err = in.Open()
 	if err != nil {
 		fmt.Printf("problem opening MIDI in: %v\n", err)
@@ -256,9 +255,11 @@ func main() {
 	}
 	defer stop()
 
+	intervals := []midi.Interval{}
+
 	// Main loop
 	go HandleInputs(messages, func(n midi.Note) {
-		err := Play(out, n, invervals)
+		err := Play(out, n, intervals)
 		if err != nil {
 			fmt.Printf("playback issue: %v", err)
 			os.Exit(1)
@@ -266,9 +267,35 @@ func main() {
 	})
 
 	// wait for interrupt
-	done := make(chan os.Signal, 1)
-	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
-	fmt.Println("Ready to play")
-	<-done // Will block here until user hits ctrl+c
-	fmt.Println("Closing MIDI devices")
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
+
+SELECT_PATTERN:
+	intervals, err = SelectPattern()
+	if err != nil {
+		fmt.Printf("problem with pattern: %v\n", err)
+		os.Exit(1)
+	}
+
+	// wait for "x" keypresss
+	back := make(chan string, 1)
+	go func() {
+		keypressWait := promptui.Prompt{
+			Label: "Ready to play (press any key to change pattern, ctrl-c to quit)",
+		}
+		str, err := keypressWait.Run()
+		if err != nil {
+			fmt.Printf("prompt issue: %v", err)
+			os.Exit(1)
+		}
+		back <- str
+	}()
+
+	select {
+	case <-exit: // Will block here until user hits ctrl+c
+		fmt.Println("Closing MIDI devices")
+		os.Exit(0)
+	case <-back:
+		goto SELECT_PATTERN
+	}
 }
