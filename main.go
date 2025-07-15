@@ -15,15 +15,6 @@ import (
 )
 
 var Intervals = map[string][]midi.Interval{
-	"1-3-5-8-5-3-1": {
-		midi.Unison,
-		midi.MajorThird,
-		midi.Fifth,
-		midi.Octave,
-		midi.Fifth,
-		midi.MajorThird,
-		midi.Unison,
-	},
 	"5-4-3-2-1": {
 		midi.Fifth,
 		midi.Fourth,
@@ -36,6 +27,26 @@ var Intervals = map[string][]midi.Interval{
 		midi.MajorThird,
 		midi.Fifth,
 		midi.MajorThird,
+		midi.Unison,
+	},
+	"1-3-5-8-5-3-1": {
+		midi.Unison,
+		midi.MajorThird,
+		midi.Fifth,
+		midi.Octave,
+		midi.Fifth,
+		midi.MajorThird,
+		midi.Unison,
+	},
+	"1-2-3-4-5-4-3-2-1": {
+		midi.Unison,
+		midi.MajorSecond,
+		midi.MajorThird,
+		midi.Fourth,
+		midi.Fifth,
+		midi.Fourth,
+		midi.MajorThird,
+		midi.MajorSecond,
 		midi.Unison,
 	},
 	"5-6-5-4-5-4-3-4-3-2-3-2-1": {
@@ -133,7 +144,7 @@ var tempo = 100.0 // bpm
 // easy imo
 func HandleInputs(messages chan midi.Message, playback func(midi.Note)) {
 	timeout := time.Duration(1 / (tempo / 60.0) * 2.2 /* wiggle room */ * float64(time.Second))
-	var start time.Time
+	// var start time.Time
 
 INITIAL:
 	msg1, ok := <-messages
@@ -151,7 +162,6 @@ INITIAL:
 FIRST_DOWN:
 	select {
 	case msg2, ok := <-messages:
-		start = time.Now()
 		if !ok {
 			return // channel closed
 		}
@@ -171,13 +181,13 @@ FIRST_UP:
 		if !msg3.GetNoteStart(&c, &msg3Note, &v) || c != channel {
 			goto FIRST_UP // keep waiting
 		}
+		// start = time.Now()
 	case <-time.After(timeout):
 		goto INITIAL
 	}
 SECOND_DOWN:
 	select {
 	case msg4, ok := <-messages:
-		tempo = (1.0 / time.Since(start).Minutes()) * 2 // 8th note to quarter note
 		if !ok {
 			return // channel closed
 		}
@@ -186,6 +196,7 @@ SECOND_DOWN:
 			goto SECOND_DOWN // keep waiting
 		}
 		// sequence complete, play
+		// tempo = (1.0 / time.Since(start).Minutes())
 		playback(midi.Note(msg4Note))
 		goto INITIAL
 	case <-time.After(timeout):
